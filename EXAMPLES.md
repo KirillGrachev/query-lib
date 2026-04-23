@@ -1,7 +1,6 @@
-### CREATE TABLE
+## 1. CREATE TABLE
 
-Vanilla Java:
-
+**Vanilla Java:**
 ```java
 String sql = "CREATE TABLE IF NOT EXISTS `table` (" +
         "`firstKey` VARCHAR(16) NOT NULL, " +
@@ -9,166 +8,279 @@ String sql = "CREATE TABLE IF NOT EXISTS `table` (" +
         "`textValue` TEXT, " +
         "`longValue` BIGINT, " +
         "PRIMARY KEY(`firstKey`, `secondKey`));";
-try (Connection con = source.getConnection(); PreparedStatement p = source.getConnection().prepareStatement(sql)) {
+
+try (Connection con = source.getConnection(); 
+     PreparedStatement p = con.prepareStatement(sql)) {
     p.executeUpdate();
 }
 ```
 
-With query-lib:
+**With query-lib:**
+> **Примечание:** Текущая реализация `CreateTable` поддерживает первичные ключи на уровне колонки (`intKey`). Для составных ключей требуется доработка или использование raw SQL.
 
 ```java
-Query.createTable("table")
+import me.saharnooby.lib.query.query.impl.CreateTable;
+import java.sql.SQLException;
+
+// Построение запроса
+CreateTable createTable = CreateTable.table("table")
         .ifNotExists()
-        .varchar("firstKey", 16).PK().NN()
-        .integer("secondKey").PK().NN()
-        .text("textValue")
-        .bigint("longValue")
-        .update(source);
+        .varchar("firstKey", 16).notNull().endColumn()
+        .intKey("id").endColumn() // Пример одиночного PK
+        .text("textValue").endColumn()
+        .bigint("longValue").endColumn();
+
+// Выполнение DDL через стандартный JDBC (так как QueryExecutor ориентирован на DML)
+try (var conn = source.getConnection();
+     var ps = conn.prepareStatement(createTable.getSql())) {
+    ps.executeUpdate();
+} catch (SQLException e) {
+    throw new RuntimeException(e);
+}
 ```
 
-### SELECT
+## 2. SELECT
 
-Vanilla Java:
-
+**Vanilla Java:**
 ```java
 Optional<String> result;
 String sql = "SELECT `value` FROM `table` WHERE `key` = ?";
-try (Connection con = source.getConnection(); PreparedStatement p = source.getConnection().prepareStatement(sql)) {
+
+try (Connection con = source.getConnection(); 
+     PreparedStatement p = con.prepareStatement(sql)) {
     p.setInt(1, key);
     try (ResultSet set = p.executeQuery()) {
         result = set.next() ? Optional.ofNullable(set.getString(1)) : Optional.empty();
     }
 }
 result.ifPresent(System.out::print);
-
 ```
 
-With query-lib:
-
+**With query-lib:**
 ```java
-Query.select("value")
-        .from("table")
-        .where("key", key)
-        .queryAndMap(source, s -> s.getString(1))
-        .ifPresent(System.out::print);
+import me.saharnooby.lib.query.query.impl.SelectQuery;
+import me.saharnooby.lib.query.query.executor.QueryExecutor;
+import java.sql.SQLException;
+import java.util.Optional;
+
+SelectQuery query = SelectQuery.from("table")
+        .select("value")
+        .where("key", key);
+
+try {
+    Optional<String> result = QueryExecutor.queryOne(source, query, rs -> rs.getString("value"));
+    result.ifPresent(System.out::print);
+} catch (SQLException e) {
+    throw new RuntimeException(e);
+}
 ```
 
-### INSERT
+## 3. INSERT
 
-Vanilla Java:
-
+**Vanilla Java:**
 ```java
-String sql = "INSERT INTO `table` (`key`, `value`) VALUES (?, ?);"
-try (Connection con = source.getConnection(); PreparedStatement p = source.getConnection().prepareStatement(sql)) {
+String sql = "INSERT INTO `table` (`key`, `value`) VALUES (?, ?);";
+try (Connection con = source.getConnection(); 
+     PreparedStatement p = con.prepareStatement(sql)) {
     p.setInt(1, key);
     p.setString(2, value);
     p.executeUpdate();
 }
-
 ```
 
-With query-lib:
-
+**With query-lib:**
 ```java
-Query.insertInto("table").value("key", key).value("value", value).update(source);
+import me.saharnooby.lib.query.query.impl.InsertQuery;
+import me.saharnooby.lib.query.query.executor.QueryExecutor;
+import java.sql.SQLException;
+
+InsertQuery query = InsertQuery.into("table")
+        .set("key", key)
+        .set("value", value);
+
+try {
+    QueryExecutor.executeUpdate(source, query);
+} catch (SQLException e) {
+    throw new RuntimeException(e);
+}
 ```
 
-### INSERT ON DUPLICATE KEY UPDATE
+## 4. INSERT ON DUPLICATE KEY UPDATE
 
-Vanilla Java:
-
+**Vanilla Java:**
 ```java
-String sql = "INSERT INTO `table` (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?;"
-try (Connection con = source.getConnection(); PreparedStatement p = source.getConnection().prepareStatement(sql)) {
+String sql = "INSERT INTO `table` (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?;";
+try (Connection con = source.getConnection(); 
+     PreparedStatement p = con.prepareStatement(sql)) {
     p.setInt(1, key);
     p.setString(2, value);
     p.setString(3, value);
     p.executeUpdate();
 }
-
 ```
 
-With query-lib:
-
+**With query-lib:**
 ```java
-Query.insertInto("table")
-        .value("key", key)
-        .value("value", value)
-        .onDuplicateKeyUpdateExcept("key")
-        .update(source);
+import me.saharnooby.lib.query.query.impl.InsertQuery;
+import me.saharnooby.lib.query.query.executor.QueryExecutor;
+import java.sql.SQLException;
+
+InsertQuery query = InsertQuery.into("table")
+        .set("key", key)
+        .set("value", value)
+        .onDuplicateKeyUpdateExcept("key"); // Обновит все поля, кроме 'key'
+
+try {
+    QueryExecutor.executeUpdate(source, query);
+} catch (SQLException e) {
+    throw new RuntimeException(e);
+}
 ```
 
-### UPDATE
+## 5. UPDATE
 
-Vanilla Java:
-
+**Vanilla Java:**
 ```java
-String sql = "UPDATE `table` SET `value` = ? WHERE `key` = ?;"
-try (Connection con = source.getConnection(); PreparedStatement p = source.getConnection().prepareStatement(sql)) {
+String sql = "UPDATE `table` SET `value` = ? WHERE `key` = ?;";
+try (Connection con = source.getConnection(); 
+     PreparedStatement p = con.prepareStatement(sql)) {
     p.setString(1, value);
     p.setInt(2, key);
     p.executeUpdate();
 }
-
 ```
 
-With query-lib:
-
+**With query-lib:**
 ```java
-Query.update("table").value("value", value).where("key", key).update(source);
+import me.saharnooby.lib.query.query.impl.UpdateQuery;
+import me.saharnooby.lib.query.query.executor.QueryExecutor;
+import java.sql.SQLException;
+
+UpdateQuery query = UpdateQuery.table("table")
+        .set("value", value)
+        .where("key", key);
+
+try {
+    QueryExecutor.executeUpdate(source, query);
+} catch (SQLException e) {
+    throw new RuntimeException(e);
+}
 ```
 
-### DELETE
+## 6. DELETE
 
-Vanilla Java:
-
+**Vanilla Java:**
 ```java
-String sql = "DELETE FROM `table` WHERE `key` = ?;"
-try (Connection con = source.getConnection(); PreparedStatement p = source.getConnection().prepareStatement(sql)) {
+String sql = "DELETE FROM `table` WHERE `key` = ?;";
+try (Connection con = source.getConnection(); 
+     PreparedStatement p = con.prepareStatement(sql)) {
     p.setInt(1, key);
     p.executeUpdate();
 }
-
 ```
 
-With query-lib:
+**With query-lib:**
+```java
+import me.saharnooby.lib.query.query.impl.DeleteQuery;
+import me.saharnooby.lib.query.query.executor.QueryExecutor;
+import java.sql.SQLException;
+
+DeleteQuery query = DeleteQuery.from("table")
+        .where("key", key);
+
+try {
+    QueryExecutor.executeUpdate(source, query);
+} catch (SQLException e) {
+    throw new RuntimeException(e);
+}
+```
+
+## 7. Raw Query
+
+**Vanilla Java:**
+```java
+String sql = "SELECT `key` FROM (SELECT * FROM `table`) sub WHERE `key` = ?;";
+try (Connection con = source.getConnection(); 
+     PreparedStatement p = con.prepareStatement(sql)) {
+    p.setInt(1, key);
+    try (ResultSet rs = p.executeQuery()) {
+        while (rs.next()) {
+            System.out.print(rs.getInt(1));
+        }
+    }
+}
+```
+
+**With query-lib:**
+Используем анонимную реализацию интерфейса `SqlQuery` для сложных запросов.
 
 ```java
-Query.deleteFrom("table").where("key", key).update(source);
+import me.saharnooby.lib.query.query.api.SqlQuery;
+import me.saharnooby.lib.query.query.executor.QueryExecutor;
+import java.sql.SQLException;
+import java.util.List;
+
+SqlQuery rawQuery = new SqlQuery() {
+    @Override
+    public String getSql() {
+        return "SELECT `key` FROM (SELECT * FROM `table`) sub WHERE `key` = ?;";
+    }
+
+    @Override
+    public List<Object> getParams() {
+        return List.of(key);
+    }
+};
+
+try {
+    List<Integer> results = QueryExecutor.queryList(source, rawQuery, rs -> rs.getInt("key"));
+    results.forEach(System.out::print);
+} catch (SQLException e) {
+    throw new RuntimeException(e);
+}
 ```
 
-### Raw query
+## 8. Batches
 
-Raw queries allow you to use updates, batches and set mapping with arbitrary SQL statements.
-
-```java
-Query.raw("SELECT `key` FROM (SELECT * FROM `table`) WHERE `key` = ?;", key)
-        .queryAndMapAll(source, s -> s.getInt(1))
-        .forEach(System.out::print);
-```
-
-### Batches
-
-Vanilla Java:
-
+**Vanilla Java:**
 ```java
 List<String> valuesToBeInsert = Arrays.asList("x", "y", "z");
-String sql = "INSERT INTO `table` (`value`) VALUES (?);"
-try (Connection con = source.getConnection(); PreparedStatement p = source.getConnection().prepareStatement(sql)) {
+String sql = "INSERT INTO `table` (`value`) VALUES (?);";
+try (Connection con = source.getConnection(); 
+     PreparedStatement p = con.prepareStatement(sql)) {
     for (String v : valuesToBeInsert) {
         p.setString(1, v);
         p.addBatch();
     }
     p.executeBatch();
 }
-
 ```
 
-With query-lib:
-
+**With query-lib:**
 ```java
+import me.saharnooby.lib.query.query.impl.InsertQuery;
+import me.saharnooby.lib.query.batch.BatchExecutor;
+import java.sql.SQLException;
+import java.util.Arrays;
+import java.util.List;
+
 List<String> valuesToBeInsert = Arrays.asList("x", "y", "z");
-BatchBuilder builder = new BatchBuilder();
-valuesToBeInsert.forEach(v -> builder.add(Query.insertInto("table").value("value", v)));
-builder.execute(source);
+
+// Создаем образец запроса для определения структуры шаблона
+InsertQuery sampleQuery = InsertQuery.into("table").set("value", "");
+
+BatchExecutor batchExecutor = BatchExecutor.of(sampleQuery);
+
+for (String v : valuesToBeInsert) {
+    // Важно: каждый добавляемый запрос должен иметь идентичную SQL-структуру
+    InsertQuery query = InsertQuery.into("table").set("value", v);
+    batchExecutor.add(query);
+}
+
+try {
+    int[] results = batchExecutor.execute(source);
+    // Обработка результатов при необходимости
+} catch (SQLException e) {
+    throw new RuntimeException(e);
+}
 ```
